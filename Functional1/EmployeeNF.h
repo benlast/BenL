@@ -4,15 +4,12 @@
 
 class EmployeeNF {
 public:
+	//The constructor body is in EmployeeNF.cpp so that
+	//there's something for the linker to use.
 	EmployeeNF(const std::string& aGivenName,
 			   const std::string& aFamilyName,
 			   const int	aNumber,
-			   const double &aSalary) :
-				   givenName(aGivenName),
-				   familyName(aFamilyName),
-				   number(aNumber),
-				   salary(aSalary)
-	{}
+			   const double &aSalary);
 
 	void SetNumber(const int aNumber) {
 		number=aNumber;
