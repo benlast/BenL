@@ -15,7 +15,7 @@ public:
 		number=aNumber;
 	}
 
-	int Number() {
+	int Number() const {
 		return number;
 	}
 
@@ -23,7 +23,7 @@ public:
 		salary=aSalary;
 	}
 
-	double Salary() {
+	double Salary() const {
 		return salary;
 	}
 
@@ -31,7 +31,7 @@ public:
 		givenName=aGivenName;
 	}
 
-	std::string GivenName() {
+	std::string GivenName() const {
 		return givenName;
 	}
 
@@ -39,7 +39,7 @@ public:
 		familyName=aFamilyName;
 	}
 
-	std::string FamilyName() {
+	std::string FamilyName() const {
 		return familyName;
 	}
 
