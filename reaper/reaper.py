@@ -26,23 +26,21 @@ if TESTMODE:
 #A keyword=value splitter that takes a string and returns a 2-tuple or raises
 #an exception if there's a format error.
 def splitKV(arg):
-    """Split keyword from value at the first '=', trim both parts, do a limited
-    check for validity, return a 2-tuple.  Lowercase the keyword, leave the value case."""
-    elements=[x.strip() for x in arg.split('=')]
-    if len(elements)==1:    #keyword only
-        v=None
-    else:
-        v=elements[1]
-    if len(elements) >= 1:
-        k=elements[0].lower()
-    if (not elements) or len(elements) > 2:
-        raise ValueError("The argument '%s' is badly formed.  Arguments should be keyword=value" % arg)
-    else:
-        return (k,v)
+    """Split keyword from value at the first '=', strip both parts,return a 2-tuple.
+    Lowercase the keyword, leave the value case alone."""
+
+    eqpos=arg.find('=')
+    if eqpos<0:
+        #No =, so we have only a keyword, which is legal.
+        return (arg.lower().strip(),None)
+
+    (k,v)=(arg[:eqpos].lower().strip(),arg[eqpos+1:].strip())
+
+    return (k,v)
 
 class FilterAction(argparse.Action):
     """An argument parsing action for argparse that will store an include or exclude filter
-    as a (keyword,value,isRegex) tuple"""
+    as a (keyword,value,isRegex) tuple, appending it to the appropriate attribute."""
 
     #Class constants - these are referenced in __call__ and where the arguments
     #are added to the parser.
@@ -50,12 +48,12 @@ class FilterAction(argparse.Action):
     EXCLUDETAGS=["-x","--exclude"]
     INCLUDERTAGS=["-I","--includer"]
     EXCLUDERTAGS=["-X","--excluder"]
-    RETAGS=INCLUDERTAGS+EXCLUDERTAGS
-    ITAGS=INCLUDETAGS+INCLUDERTAGS
+    RETAGS=INCLUDERTAGS+EXCLUDERTAGS    #All regexp option names
+    ITAGS=INCLUDETAGS+INCLUDERTAGS      #All simple option names
 
     def __call__(self,parser,namespace,values,optionstring):
         """We expect that values is a (keyword,value) tuple because splitKV has already been
-        applied to it"""
+        applied to it."""
         if type(values)==types.TupleType and len(values)==2:
             #Determine if this is a regex option
             isRegex=(optionstring in FilterAction.RETAGS)
@@ -135,7 +133,7 @@ class Instance:
             #We'll assume it's a boto.ec2.instance.Instance, and set attributes on self for every
             #non-builtin attribute in the object.
             map(lambda (k,v): setattr(self,k,v),((k,v) for (k,v) in data.__dict__.iteritems() if not k.startswith('__')))
-            #Copy the bound control methods from the original object
+            #Copy the bound control methods from the original object, replacing the test methods
             self.start=data.start
             self.stop=data.stop
             self.terminate=data.terminate
@@ -143,9 +141,10 @@ class Instance:
         if not hasattr(self,"tags"):
             self.tags={}
         else:
-            #Replace with lower-case keys
+            #Rewrite the dict to have lower-case keys
             self.tags=dict([(a.lower(),b) for (a,b) in self.tags.iteritems()])
 
+        # Store the underlying object
         self.instance=data
 
     def __unicode__(self):
@@ -251,11 +250,16 @@ class Filter:
     Create a filter by passing a (keyword,value,isRegex) tuple.
     Use call syntax to check if a give instance matches the Filter."""
     def __init__(self,kv):
+        #Store the original value in _value so that we can print it for debug (because
+        #in the case of a regex, self.value is the compiled regex object).
         (self.keyword,self._value,self.isRegex)=kv
 
+        # Handle the special case of a tag filter: we look up on the key that
+        # follows the '.'
         if self.keyword.startswith("tags.") or self.keyword.startswith("tag."):
             self.tag=self.keyword[self.keyword.find('.')+1:]
         else:
+            # Setting self.tag to None flags that this is not a tag filter
             self.tag=None
 
         if self.isRegex:
@@ -281,28 +285,23 @@ class Filter:
         if attr is not None:
             if self.value is None:
                 #All we're checking for is the presence of the attribute with *some* value
-                #that is not empty.
-                #print "%s matched on keyword presence"%str(self)
+                #that is true (pythonically speaking, meaning 'not empty' in most cases).
                 return bool(attr.strip())
             else:
                 #Compare the values
                 if self.isRegex:
                     # We don't care about the actual match value, just whether there is
-                    # a match or not.
-                    #if self.value.match(attr):
-                    #    print "%s matched value %s"%(str(self),str(attr))
+                    # any match or not.
                     return (self.value.match(attr) is not None)
                 else:
-                    #if self.value==attr:
-                    #    print "%s matched value %s"%(str(self),str(attr))
+                    # We match on an exact string match
                     return (self.value==attr)
-        #If there is no attribute (and we don't expect None to be an actual value)
-        #then we never match.
+        #If there is no attribute with the given name, then we never match.
         return False
 
 def createFilterList(data):
     """Given a list of (keyword,value,isRegex) tuples, return a list
-    of Filters"""
+    of Filters."""
     return [Filter(x) for x in data if type(x) in (types.TupleType,types.ListType) and len(x)==3]
 
 def filtered(instances,includes,excludes):
@@ -314,28 +313,28 @@ def filtered(instances,includes,excludes):
     3. If there are no exclude filters, all included instances are returned.
     """
     if includes:
+        # Check each instance against all filters (stopping at the first one that matches)
         included=filter(lambda i: any(f(i) for f in includes), instances)
     else:
         included=instances
     #print "Included=%s"%map(str,included)
 
     if excludes:
+        # Check each instance against all filters (stopping at the first one that matches)
         passed=filter(lambda i: not any(f(i) for f in excludes), included)
     else:
         passed=included
-    #print "Passed=%s"%map(str,passed)
+
     return passed
 
 def test():
     """Run self-tests"""
     assert splitKV("a=b")==('a','b')
     assert splitKV("this is a keyword = this is a value")==('this is a keyword','this is a value')
-    for illformed in "a=b=c".split():
-        try:
-            splitKV(illformed)
-            raise AssertionError("splitKV failed to correctly validate '%s'"%illformed)
-        except ValueError:
-            pass
+    assert splitKV("Alpha=b")==("alpha","b")
+    assert splitKV("Alpha=")==("alpha","")
+    result=splitKV("Alpha")
+    assert result==("alpha",None),"Expected ('alpha',None), got %s"%str(result)
 
     a=vars(arguments([]))
     assert not a['action'],"Expected empty action"
